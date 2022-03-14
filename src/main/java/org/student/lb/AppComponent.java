@@ -29,8 +29,13 @@ import org.onosproject.net.host.HostService;
 import org.onosproject.net.packet.*;
 import org.slf4j.Logger;
 
-import java.nio.ByteBuffer;
+import javassist.compiler.ast.Pair;
 
+import java.lang.reflect.Array;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List; 
+import java.util.concurrent.ConcurrentHashMap;
 import static org.slf4j.LoggerFactory.getLogger;
 
 
@@ -38,6 +43,10 @@ import static org.slf4j.LoggerFactory.getLogger;
 public class AppComponent {
 
     private final Logger log = getLogger(getClass());
+
+    ConcurrentHashMap<MacAddress, Ip4Address> hostTable = new ConcurrentHashMap<>();
+    ConcurrentHashMap<MacAddress, Ip4Address> serverTable = new ConcurrentHashMap<>();
+    ConcurrentHashMap<MacAddress, ArrayList<Ip4Address,MacAddress>()> mappedServerTable = new ConcurrentHashMap<>();
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
     protected PacketService packetService;
@@ -84,6 +93,11 @@ public class AppComponent {
         public void process(PacketContext context) {
             InboundPacket pkt = context.inPacket();
             Ethernet ethPkt = pkt.parsed();
+            
+            String lb_mac= "00:00:00:00:00:14";
+            String lb_ip = "10.0.0.100";
+
+
             //Discard if  packet is null.
             if (ethPkt == null) {
                 return;
@@ -97,12 +111,21 @@ public class AppComponent {
                 ARP arpPacket = (ARP) ethPkt.getPayload();
                 //Create an ARP reply packet with the LB's MAC:IP
                 Ethernet arpReply;
-                if (ethPkt.getSourceMAC().equals(MacAddress.valueOf("00:00:00:00:00:01"))) {
-                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.100"), MacAddress.valueOf("00:00:00:00:00:14"), ethPkt);
-
+                if (hostTable.containsKey(ethPkt.getSourceMAC())) {
+                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf(lb_ip), MacAddress.valueOf(lb_mac), ethPkt);
+                } else if (serverTable.containsKey(ethPkt.getSourceMAC())) {
+                    // Husk at mappe ARP nede i ipv4 delen
+                    arpReply = arpPacket.buildArpReply(mappedServerTable.get(ethPkt.getSourceMAC()), ethPkt.getDestinationMAC());
+                
                 } else {
-                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.1"), MacAddress.valueOf("00:00:00:00:00:01"), ethPkt);
+                    hostTable.put(ethPkt.getSourceMAC(),pkt.receivedFrom().ipElementId().ipAddress().getIp4Address());
+                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf(lb_ip), MacAddress.valueOf(lb_mac), ethPkt);
                 }
+
+                // } else {
+                //     arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.1"), MacAddress.valueOf("00:00:00:00:00:01"), ethPkt);
+                // }
+               
                 //Send the ARP reply back to the host.
                 log.info("ARP reply to {}", ethPkt.getSourceMAC().toString());
                 for (Host host : hostService.getHostsByMac(ethPkt.getSourceMAC())) {
