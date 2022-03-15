@@ -28,12 +28,8 @@ import org.onosproject.net.flowobjective.ForwardingObjective;
 import org.onosproject.net.host.HostService;
 import org.onosproject.net.packet.*;
 import org.slf4j.Logger;
-
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List; 
 import java.util.concurrent.ConcurrentHashMap;
-
+import java.nio.ByteBuffer;
 
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -41,11 +37,9 @@ import static org.slf4j.LoggerFactory.getLogger;
 @Component(immediate = true)
 public class AppComponent {
 
-    private final Logger log = getLogger(getClass());
+    ConcurrentHashMap<Ip4Address, MacAddress> hostTable = new ConcurrentHashMap<>();
 
-    ConcurrentHashMap<MacAddress, Ip4Address> hostTable = new ConcurrentHashMap<>();
-    ConcurrentHashMap<MacAddress, Ip4Address> serverTable = new ConcurrentHashMap<>();
-    ConcurrentHashMap<Ip4Address, MacAddress> mappedServerTable = new ConcurrentHashMap<>();
+    private final Logger log = getLogger(getClass());
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
     protected PacketService packetService;
@@ -92,19 +86,15 @@ public class AppComponent {
         public void process(PacketContext context) {
             InboundPacket pkt = context.inPacket();
             Ethernet ethPkt = pkt.parsed();
-            
-            String lb_mac= "00:00:00:00:00:14";
-            String lb_ip = "10.0.0.100";
+            //hardcode H1
+            hostTable.put(Ip4Address.valueOf("10.0.0.1"), MacAddress.valueOf("00:00:00:00:00:01"));
 
-            //TODO HARDCODE SERVERS
-            serverTable.put(MacAddress.valueOf("00:00:00:00:00:02"),Ip4Address.valueOf("10.0.0.2"));
-            serverTable.put(MacAddress.valueOf("00:00:00:00:00:03"),Ip4Address.valueOf("10.0.0.3"));
 
             //Discard if  packet is null.
             if (ethPkt == null) {
                 return;
             }
-            
+
             /*First step is to handle the ARP requests.
             For that catch all ARP packets and construct and send back the ARP replies.
             */
@@ -113,25 +103,12 @@ public class AppComponent {
                 ARP arpPacket = (ARP) ethPkt.getPayload();
                 //Create an ARP reply packet with the LB's MAC:IP
                 Ethernet arpReply;
-                if (hostTable.containsKey(ethPkt.getSourceMAC())) {
-                    log.info("The HOST has sent an arp with this address {}", ethPkt.getSourceMAC().toString());
-                    log.info("Sending ARP reply to with LB IP {}",Ip4Address.valueOf(lb_ip).toString());
-                    log.info("Sending ARP reply to with LB MAC {}",MacAddress.valueOf(lb_mac).toString());
-                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf(lb_ip), MacAddress.valueOf(lb_mac), ethPkt);
-                } else if (serverTable.containsKey(ethPkt.getSourceMAC())) {
-                    // Husk at mappe ARP nede i ipv4 delen
-                    log.info("Server is sending ARP request with this MACaddress {}",ethPkt.getSourceMAC().toString());
-                    log.info("Sending ARP reply to with HOST IP {}",pkt.receivedFrom().ipElementId().ipAddress().getIp4Address().toString());
-                    log.info("Sending ARP reply to with HOST MAC {}",mappedServerTable.get(pkt.receivedFrom().ipElementId().ipAddress().getIp4Address()).toString());
-                    arpReply = arpPacket.buildArpReply(pkt.receivedFrom().ipElementId().ipAddress().getIp4Address(), mappedServerTable.get(pkt.receivedFrom().ipElementId().ipAddress().getIp4Address()),ethPkt);
-                    
-                } else {
-                    //log.info("HOST has ARP requested, with this MACaddress {}", ethPkt.getSourceMAC().toString());
-                    //log.info("Adding them to map of hosts, and this is their IP {}", pkt.receivedFrom().ipElementId().ipAddress().getIp4Address().toString());
-                    
+                //if (ethPkt.getSourceMAC().equals(MacAddress.valueOf("00:00:00:00:00:01"))) {
+                if (hostTable.contains(pkt.receivedFrom().ipElementId().ipAddress())) {
+                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.100"), MacAddress.valueOf("00:00:00:00:00:14"), ethPkt);
 
-                    hostTable.put(ethPkt.getSourceMAC(),pkt.receivedFrom().ipElementId().ipAddress().getIp4Address());
-                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf(lb_ip), MacAddress.valueOf(lb_mac), ethPkt);
+                } else {
+                    arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.1"), MacAddress.valueOf("00:00:00:00:00:01"), ethPkt);
                 }
                 //Send the ARP reply back to the host.
                 log.info("ARP reply to {}", ethPkt.getSourceMAC().toString());
@@ -170,17 +147,13 @@ public class AppComponent {
                 selector.matchIPProtocol(IPv4.PROTOCOL_UDP).matchUdpSrc(TpPort.tpPort(srcPort))
                         .matchUdpDst(TpPort.tpPort(dstPort));
             }
-            selector.matchIPDst(IpPrefix.valueOf(IpAddress.valueOf(lb_ip), IpPrefix.MAX_INET_MASK_LENGTH));
+            selector.matchIPDst(IpPrefix.valueOf(IpAddress.valueOf("10.0.0.100"), IpPrefix.MAX_INET_MASK_LENGTH));
 
             // In order to LB the traffic use the number of requests so far as a criterion. Before finishing the processing block() the context.
             // The port is used as a matching criterion in the configuration of the Traffic selector (above) !
             if (requestsServed % 2 == 0) {
                 // Forward to H2
-                // HUSK HOSTEN HER PLZ
-                mappedServerTable.put((Ip4Address) IpAddress.valueOf(ipv4Packet.getSourceAddress()), ethPkt.getSourceMAC());
-
-                forwardRequest(context, MacAddress.valueOf("00:00:00:00:00:02"),ethPkt.getSourceMAC(),
-                IpAddress.valueOf("10.0.0.2"),IpAddress.valueOf(ipv4Packet.getSourceAddress()), 2, selector.build());
+                forwardRequest(context, MacAddress.valueOf("00:00:00:00:00:02"), IpAddress.valueOf("10.0.0.2"), 2, selector.build());
                 log.info("Request will be forwarded to H2");
                 context.block();
                 requestsServed++;
@@ -189,21 +162,16 @@ public class AppComponent {
             }
             else {
                 //Forward to H3
-                //Remember which host is connected to the server
-                mappedServerTable.put((Ip4Address) IpAddress.valueOf(ipv4Packet.getSourceAddress()), ethPkt.getSourceMAC());
-
-                forwardRequest(context, MacAddress.valueOf("00:00:00:00:00:03"),ethPkt.getSourceMAC(), 
-                IpAddress.valueOf("10.0.0.3"),IpAddress.valueOf(ipv4Packet.getSourceAddress()), 3, selector.build());
-                
+                forwardRequest(context, MacAddress.valueOf("00:00:00:00:00:03"), IpAddress.valueOf("10.0.0.3"), 3, selector.build());
                 log.info("Request will be forwarded to H3");
                 context.block();
-                requestsServed++;
-                log.info("RequestsServed (H3):"+requestsServed);
+               requestsServed++;
+               log.info("RequestsServed (H3):"+requestsServed);
                 return;
             }
         }
 
-        public void forwardRequest(PacketContext context, MacAddress dstMac,MacAddress srcMac, IpAddress dstIp, IpAddress srcIp, int port, TrafficSelector selector) {
+        public void forwardRequest(PacketContext context, MacAddress dstMac, IpAddress dstIp, int port, TrafficSelector selector) {
 
             /*
             Specify the Treatment we want on the packets. Since the packets have the LB as the destination,
@@ -236,10 +204,8 @@ public class AppComponent {
 
             TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
             selectorBuilder.matchEthType(Ethernet.TYPE_IPV4)
-                    .matchIPDst(IpPrefix.valueOf(dstIp, IpPrefix.MAX_INET_MASK_LENGTH))
-                    .matchEthDst(dstMac);
-                    // .matchIPDst(IpPrefix.valueOf(IpAddress.valueOf("10.0.0.1"), IpPrefix.MAX_INET_MASK_LENGTH))
-                    // .matchEthDst(MacAddress.valueOf("00:00:00:00:00:01"));
+                    .matchIPDst(IpPrefix.valueOf(IpAddress.valueOf("10.0.0.1"), IpPrefix.MAX_INET_MASK_LENGTH))
+                    .matchEthDst(MacAddress.valueOf("00:00:00:00:00:01"));
 
             ForwardingObjective forwardingObjective2 = DefaultForwardingObjective.builder().withTreatment(treatment2)
                     .withSelector(selectorBuilder.build())
