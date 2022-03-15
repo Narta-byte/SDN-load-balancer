@@ -126,8 +126,8 @@ public class AppComponent {
                     arpReply = arpPacket.buildArpReply(pkt.receivedFrom().ipElementId().ipAddress().getIp4Address(), mappedServerTable.get(pkt.receivedFrom().ipElementId().ipAddress().getIp4Address()),ethPkt);
                     
                 } else {
-                    log.info("HOST has ARP requested, with this MACaddress {}", ethPkt.getSourceMAC().toString());
-                    log.info("Adding them to map of hosts, and this is their IP {}", pkt.receivedFrom().ipElementId().ipAddress().getIp4Address().toString());
+                    //log.info("HOST has ARP requested, with this MACaddress {}", ethPkt.getSourceMAC().toString());
+                    //log.info("Adding them to map of hosts, and this is their IP {}", pkt.receivedFrom().ipElementId().ipAddress().getIp4Address().toString());
                     
 
                     hostTable.put(ethPkt.getSourceMAC(),pkt.receivedFrom().ipElementId().ipAddress().getIp4Address());
