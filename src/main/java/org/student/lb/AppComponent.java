@@ -37,7 +37,7 @@ import static org.slf4j.LoggerFactory.getLogger;
 @Component(immediate = true)
 public class AppComponent {
 
-    ConcurrentHashMap<Ip4Address, MacAddress> hostTable = new ConcurrentHashMap<>();
+    ConcurrentHashMap<MacAddress, Ip4Address> hostTable = new ConcurrentHashMap<>();
 
     private final Logger log = getLogger(getClass());
 
@@ -87,7 +87,7 @@ public class AppComponent {
             InboundPacket pkt = context.inPacket();
             Ethernet ethPkt = pkt.parsed();
             //hardcode H1
-            hostTable.put(Ip4Address.valueOf("10.0.0.1"), MacAddress.valueOf("00:00:00:00:00:01"));
+            hostTable.put(MacAddress.valueOf("00:00:00:00:00:01"),Ip4Address.valueOf("10.0.0.1"));
 
 
             //Discard if  packet is null.
@@ -104,7 +104,7 @@ public class AppComponent {
                 //Create an ARP reply packet with the LB's MAC:IP
                 Ethernet arpReply;
                 //if (ethPkt.getSourceMAC().equals(MacAddress.valueOf("00:00:00:00:00:01"))) {
-                if (hostTable.contains(pkt.receivedFrom().ipElementId().ipAddress())) {
+                if (hostTable.contains(ethPkt.getSourceMAC())) {
                     arpReply = arpPacket.buildArpReply(Ip4Address.valueOf("10.0.0.100"), MacAddress.valueOf("00:00:00:00:00:14"), ethPkt);
 
                 } else {
